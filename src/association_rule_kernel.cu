@@ -1,16 +1,4 @@
-#define DATA_SIZE 30
-#define THREASHOLD 10
-struct Trans {
-    int num;
-    int data[DATA_SIZE];
-};
-
-struct Pattern {
-    int num;
-    int pat_num;
-    int data[DATA_SIZE];
-};
-
+#include "association_rule.h"
 __device__ bool is_sub_array(Trans* trans, Pattern* pattern) {
          
     // whether matches            
@@ -118,6 +106,3 @@ __global__ void association_kernel (Trans* input, int input_num, Pattern* patter
     }
 }
 
-
-
-__global__ void first_pass_kernel()
