@@ -11,46 +11,77 @@ struct Pattern {
     int data[DATA_SIZE];
 };
 
+__device__ bool is_sub_array(Trans* trans, Pattern* pattern) {
+         
+    // whether matches            
+    bool ret = false;
+    int pat_data_num = pattern.pat_num;
+    int input_data_num = trans.num;
+    if (pat_data_num <= input_data_num) {
+        int input_ptr = 0;
+        int pat_ptr = 0;
+        while ( (pat_ptr < pat_data_num) && (input_ptr < input_data_num) ) {
+            if (pattern.data[pat_ptr] < trans.data[input_ptr]) break;
+            else if (pattern.data[pat_ptr] == trans.data[input_ptr]) {
+                pat_ptr ++;
+                input_ptr ++;
+            } else {
+                input_ptr ++;
+            }
+        }
+        if (pat_ptr == pat_data_num)
+            ret = true; 
+    }                           
+    return ret;
+}
 
-__global__ void* association_kernel (Trans* input, int input_num, Pattern* pattern, int* pat_data_array, int pat_num, int pattern_dim) {
+__device__ bool generate_new_pattern (Pattern* old, Pattern* cur, Pattern* tail) {
+
+    bool ret = false;
+    if ( (old->pat_num == cur->pat_num) && (old->num > THREASHOLD) ) {
+        int m = 0;
+        for (; m < cur->pat_num-1; ++m) {
+            if (old->data[m] != cur->data[m]) {
+                break;
+            }
+        }
+                
+        if (m == cur->pat_num-1) {
+            tail.pat_num = old.pat_num;
+            tail.num = 0;
+            for (int i = 0; i < old.pat_num; ++i) {
+                tail.data[m] = tail.data[m];
+            }
+            tail.data[pat.pat_num] = cur.data[pat.pat_num-1];
+            ret = true;
+        }
+
+    }
+    return ret;
+}
+
+__global__ void association_kernel (Trans* input, int input_num, Pattern* pattern, int* pat_data_array, int pat_num, int pattern_dim) {
     
     pattern += pattern_dim * blockIdx.x;
-    //int tid = threadIdx.x + blockIdx.x * blockDim.x;    
-    int pat_idx = 0;
-    
+
+    int pat_idx = 0;    
     int cmp_idx = 0;
+
     extern __shared__ int smem[];
 
     //one pattern a time
     while(pat_idx < pat_num) {
         smem[threadIdx.x] = 0;
-        Pattern pat = pattern[pat_idx];
         // All input on this thread
         int input_idx = threadIdx.x;
-        while (input_idx < input_num) {
-            Trans ipt = input[input_idx];            
+        while (input_idx < input_num) {            
             // whether matches            
-            int pat_data_num = pat.pat_num;
-            int input_data_num = ipt.num;
-            if (pat_data_num <= input_data_num) {
-                int input_ptr = 0;
-                int pat_ptr = 0;
-                while ( (pat_ptr < pat_data_num) && (input_ptr < input_data_num) ) {
-                    if (pat.data[pat_ptr] < ipt.data[input_ptr]) break;
-                    else if (pat.data[pat_ptr] == ipt.data[input_ptr]) {
-                        pat_ptr ++;
-                        input_ptr ++;
-                    } else {
-                        input_ptr ++;
-                    }
-                }
-                if (pat_ptr == pat_data_num)
-                    smem[threadIdx.x] ++; 
-            }                           
+            if (is_sub_array(pattern+pat_idx, input + input_idx)) {
+                smem[threadIdx.x] ++;
+            }
             input_idx += blockDim.x;
-
         }
-        __syncthreads();
+        __syncthreads();        
         //sum up this pattern
         for (int i = (blockDim.x >> 1); i > 0; i >>=1 ) {
             if (threadIdx.x < i) {
@@ -62,35 +93,18 @@ __global__ void* association_kernel (Trans* input, int input_num, Pattern* patte
 
         if (threadIdx.x == 0) {
             // write back
-            pat.num = smem[0];
+            pattern[pat_idx].num = smem[0];
             smem[0] = pat_num;
             int k = cmp_idx;
-            if (pat.num > THREASHOLD) {
+            if (pattern[pat_idx].num > THREASHOLD) {
                 bool start = false;
                 for (; k < pat_idx; k++) {
-                    if ( (pattern[k].pat_num == pat.pat_num) && (pattern[k].num > THREASHOLD) ) {
-                        bool test = true;
-                        for (int m = 0; m < pat.pat_num-1; ++m) {
-                            if (pattern[k].data[m] != pat.data[m]) {
-                                test = false;
-                                break;
-                            }
-                        }
-                        if (test && (!start)) {
+                    if (generate_new_pattern(pattern+k, pattern+pat_idx, pattern+pat_num))
+                        if (!start) {
                             start = true;
                             cmp_idx = k;   
                         }
-                        if (test) {
-                            pattern[pat_num].pat_num= pat.pat_num;
-                            pattern[pat_num].num = 0;
-                            for (int m = 0; m < pat.pat_num; ++m) {
-                                pattern[pat_num].data[m] = pattern[k].data[m];
-                            }
-                            pattern[pat_num].data[pat.pat_num] = pat.data[pat.pat_num-1];
-                            smem[0] = pat_num++;
-
-                        }
-
+                        smem[0] = pat_num++;
                     }
                 }
             }  
@@ -103,3 +117,7 @@ __global__ void* association_kernel (Trans* input, int input_num, Pattern* patte
 
     }
 }
+
+
+
+__global__ void first_pass_kernel()
