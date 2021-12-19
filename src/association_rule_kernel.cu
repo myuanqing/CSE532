@@ -48,10 +48,8 @@ __device__ bool generate_new_pattern (Pattern* old, Pattern* cur, Pattern* tail)
     return ret;
 }
 
-__global__ void association_kernel (Trans* input, int input_num, Pattern* pattern, int* pat_data_array, int pat_num, int pattern_dim) {
+__global__ void association_kernel (Trans* input, int input_num, Pattern* pattern, int pat_num, int* ret) {
     
-    pattern += pattern_dim * blockIdx.x;
-
     int pat_idx = 0;    
     int cmp_idx = 0;
 
@@ -104,5 +102,6 @@ __global__ void association_kernel (Trans* input, int input_num, Pattern* patter
 
 
     }
+    *ret = pat_num;
 }
 

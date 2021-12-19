@@ -3,62 +3,91 @@
 #include <pthread>
 #include <algorithm>
 #define TRANSNUM 100
-#define PTHREADNUM 8
 #define ITEMSIZE 100
-pthread_mutex_t mtx;
-Trans[TRANSNUM];
-int tnum = TRANSNUM;
-int pnum = PTHREADNUM;
-std::map<int, int> itemmp;
-    
-int Sdata[ITEMSIZE]; 
-Pattern pattern[ITEMSIZE* ITEMSIZE];
-int dual_pat_size = 0;
+#define PERMEM 0x10000
+#define STREAM_NUM 4
+Trans trans[TRANSNUM];
+int tnum = 0;
+int sdata[ITEMSIZE]; 
+int sdata_num = 0;
 
-void* apply_association(void* mytno){
-    int tno = (int)mytno;
-    for (int i = pno; i < tnum; i += pnum) {
+void apply_association(std::map<int, int>&itemmp){
+    for (int i = 0; i < tnum; i ++) {
         for (int j = 0; j < trans[i].num; ++j) {
             int data = trans[i].data[j];
-            pthread_mutex_lock(&mtx);
             if (itemmp.find(data) == itemmp.end()) {
                 itemmp[data] = 1;
             } else {
                 itemmp[data] ++;
             }
-            pthread_mutex_unlock(&mtx);
         }
     }
-    return NULL;
+    return;
 }
 
 int main() {
-    pthread_t pid[PTHREADNUM];
-    for (int i = 0; i < PTHREADNUM; ++i) {
-        pthread_create(&pid[i], NULL, apply_association, (void*)i);   
-    }
-    for (int i = 0; i < PTHREADNUM; ++i) {
-        pthread_join(&pid[i], NULL);   
-    }
 
-    int ptn_num = 0;
-
+    std::map<int, int> itemmp;
+    apply_association(itemmp);
+    
+    cudaStream_t streams[STREAM_NUM];
+    Pattern *device_pattern[STREAM_NUM];
+    int *device_pat_num;
+    int *host_pat_num;
+    int pos_array[STREAM_NUM];
+    int size_array[STREAM_NUM];
+    
     int pat_size = 0;
-
     for (auto iter = itemmp.begin(); iter != itemmp.end(); ++iter) {
         if (iter->second > THREASHOLD) {
-            Sdata[ptn_num++] = iter->first;
+            sdata[sdata_num] = iter->first;
         }
     }
-    sort(Sdata, Sdata+ptn_num);
-    for (int  i = 0; i < ptn_num-1; ++i) {
-        for (int j = i+1; j < ptn_num; ++j) {
-            pattern[dual_pat_size].pat_num = 2;
-            pattern[dual_pat_size].num = 0;
-            pattern[dual_pat_size].data[0] = Sdata[i];
-            pattern[dual_pat_size].data[1] = Sdata[j];
-            dual_pat_size ++;
+    sort(sdata, sdata+sdata_num);
+    int dual_size = (sdata_num-1)*sdata_num/2;
+    Pattern* pattern = new pattern[dual_size];
+    int dual_ptr = 0;
+    int per_size = dual_size/STREAM_NUM;
+    int pos = 0;
+    pos_array[0] = 0;
+    for (int  i = 0; i < sdata_num-1; ++i) {
+        for (int j = i+1; j < sdata_num; ++j) {
+            pattern[dual_ptr].pat_num = 2;
+            pattern[dual_ptr].num = 0;
+            pattern[dual_ptr].data[0] = Sdata[i];
+            pattern[dual_ptr].data[1] = Sdata[j];
+            dual_ptr++;
         }
+        if (per_size < dual_ptr - pos_array[pos]) {
+            size_array[pos] = dual_ptr - pos_array[pos];   
+            pos ++;
+            if (pos < STREAM_NUM) {
+                pos_array[pos] = dual_ptr;
+            } 
+        }
+
+    }
+    for (int i = 0; i < STREAM_NUM; ++i) {
+        cudaStreamCreate(&streams[i]);
+        cudaMalloc((void**)&device_pattern[i], PERMEM);
+    }
+    cudaMalloc((void**)&device_trans, PERMEM);
+    cudaMalloc((void**)&device_pat_num, STREAM_NUM*sizeof(int));
+    cudaMemcpy(device_trans,  trans, tnum*sizeof(Trans), cudaMemcpyHostToDevice);
+    for (int i = 0; i < STREAM_NUM; ++i) {
+        cudaMemcpyAsync(device_pattern[i], &pattern[pos_array[i]], size_array[i],cudaMemcpyHostToDevice, streams[i]);
+        int threadnum = 1024;
+        association_kernel<<<1, threadnum, threadnum, streams[i]>>>(device_trans,tnum, device_pattern[i], size_array[i], device_pat_num+i); 
     }
 
+
+    for (int i = 0; i < STREAM_NUM; ++i) {
+        Pattern* output_pattern = new Pattern[PERMEM/sizeof(Pattern)];
+        cudaMemcpyAsync(output_pattern, device_pattern[i], PERMEM, cudaMemcpyDeviceToHost, streams[i]);
+    }
+    host_pat_num = new int[STREAM_NUM];
+    cudaMemcpy(host_pat_num, device_pat_num, STREAM_NUM*sizeof(int), cudaMemcpyDeviceToHost);
+
+
+    return 0;
 }
