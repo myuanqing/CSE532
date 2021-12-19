@@ -1,8 +1,15 @@
 #include "association_rule.h"
+#include <sys/time.h>
 Trans trans[TRANSNUM];
 int tnum = 0;
 int sdata[ITEMSIZE]; 
 //int sdata_num = 0;
+
+double cpuSecond() {
+    struct timeval tp;
+    gettimeofday(&tp,NULL);
+    return ((double)tp.tv_sec + (double)tp.tv_usec*1.e-6);
+}
 
 void apply_association(std::map<int, int>&itemmp){
     for (int i = 0; i < tnum; i ++) {
@@ -24,7 +31,7 @@ void apply_association(std::map<int, int>&itemmp){
 int main() {
 
     ifstream fin;
-    fin.open("BMS1_itemset_mining.txt");
+    fin.open("mushrooms.txt");
     string line;
     tnum = 0;
     while(getline(fin, line)) {
@@ -43,6 +50,7 @@ int main() {
             break;
         }
     }
+    double prestart = cpuSecond();
     std::map<int, int> itemmp;
     apply_association(itemmp);
     
@@ -93,7 +101,8 @@ int main() {
     }
     size_array[pos] = dual_ptr - pos_array[pos];
     
-
+    double preend = cpuSecond();
+    printf("pre time: %lf\n", preend-prestart);
     for (int i = 0; i < STREAM_NUM; ++i) {
         cout << pos_array[i]<<" " << size_array[i] << endl;
     }
@@ -108,16 +117,17 @@ int main() {
     
     for (int i = 0; i < STREAM_NUM; ++i) {
         cudaStreamCreate(&streams[i]);
-        cudaMalloc((void**)&device_pattern[i], 300000*sizeof(Pattern));
+        cudaMalloc((void**)&device_pattern[i], PATTERNNUM*sizeof(Pattern));
     }
 
     cudaMalloc((void**)&device_trans, tnum * sizeof(Trans));
 
     cudaMalloc((void**)&device_pat_num, STREAM_NUM*sizeof(int));
+    double start_time = cpuSecond();
     cudaMemcpy(device_trans,  trans, tnum*sizeof(Trans), cudaMemcpyHostToDevice);
     for (int i = 0; i < STREAM_NUM; ++i) {
         cudaMemcpyAsync(device_pattern[i], &pattern[pos_array[i]], size_array[i] * sizeof(Pattern), cudaMemcpyHostToDevice, streams[i]);
-        int threadnum = 512;
+        int threadnum = CUDATHREAD;
         dim3 threadDim(threadnum);
         dim3 blockDim(1);
         association_kernel<<<blockDim, threadDim, 0 ,streams[i]>>>(device_trans,tnum, device_pattern[i], size_array[i]); 
@@ -125,12 +135,17 @@ int main() {
 
 
     for (int i = 0; i < STREAM_NUM; ++i) {
-        Pattern* output_pattern = new Pattern[PERMEM/sizeof(Pattern)];
-        cudaMemcpyAsync(output_pattern, device_pattern[i], PERMEM, cudaMemcpyDeviceToHost, streams[i]);
+        Pattern* output_pattern = new Pattern[PATTERNNUM];
+        cudaMemcpyAsync(output_pattern, device_pattern[i], PATTERNNUM*sizeof(Pattern), cudaMemcpyDeviceToHost, streams[i]);
     }
-    host_pat_num = new int[STREAM_NUM];
-    cudaMemcpy(host_pat_num, device_pat_num, STREAM_NUM*sizeof(int), cudaMemcpyDeviceToHost);
-
+    //double end_time = cpuSecond();
+    //printf("time: %lf\n", end_time-start_time);
+    //printf("size of pattern:%d\n", sizeof(Pattern));
+    //host_pat_num = new int[STREAM_NUM];
+    //cudaMemcpy(host_pat_num, device_pat_num, STREAM_NUM*sizeof(int), cudaMemcpyDeviceToHost);
+    cudaDeviceSynchronize();
+    double end_time = cpuSecond();
+    printf("time: %lf\n", end_time-start_time);
 
     return 0;
 }

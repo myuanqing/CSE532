@@ -51,7 +51,7 @@ __device__ bool generate_new_pattern (Pattern* old, Pattern* cur, Pattern* tail)
 }
 
 __global__ void association_kernel (Trans* input, int input_num, Pattern* pattern, int pat_num) {
-    __shared__ int smem[512];
+    __shared__ int smem[CUDATHREAD];
     int pat_idx = 0;    
     int cmp_idx = 0;
     bool start = false;

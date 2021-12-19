@@ -9,8 +9,9 @@
 using namespace std;
 #define TRANSNUM 60000
 #define ITEMSIZE 60000
-#define PERMEM 0x1000000
+#define PATTERNNUM 500000
 #define STREAM_NUM 8
+#define CUDATHREAD 1024
 
 #define DATA_SIZE 30
 #define THREASHOLD 10
